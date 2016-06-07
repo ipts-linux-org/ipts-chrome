@@ -225,6 +225,15 @@ ap_i2c_dig: &i2c2 {
 	};
 };
 
+&cdn_dp {
+	ports {
+		/* Don't use vopl for dp, save it for edp */
+		dp_in: port {
+			/delete-node/ endpoint@1;
+		};
+	};
+};
+
 &edp {
 	status = "okay";
 
