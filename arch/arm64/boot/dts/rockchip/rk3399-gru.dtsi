@@ -449,6 +449,25 @@
 
 	/* END REGULATORS */
 
+	cdn-dp-sound {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "rockchip,cdn-dp";
+		simple-audio-card,widgets = "Headphone", "Out Jack",
+					    "Line", "In Jack";
+		status = "okay";
+
+		simple-audio-card,dai-link@0 {
+			format = "spdif";
+			cpu {
+				sound-dai = <&spdif>;
+			};
+
+			codec {
+				sound-dai = <&cdn_dp 1>;
+			};
+		};
+	};
+
 	firmware {
 		chromeos {
 			pinctrl-names = "default";
@@ -492,6 +511,11 @@
 	};
 };
 
+&cdn_dp {
+	status = "okay";
+	extcon = <&usbc_extcon0>, <&usbc_extcon1>;
+};
+
 &cpu_l0 {
 	cpu-supply = <&ppvar_litcpu>;
 };
@@ -517,10 +541,6 @@
 };
 
 &display_subsystem {
-	status = "okay";
-};
-
-&edp {
 	status = "okay";
 };
 
@@ -720,6 +740,11 @@ ap_i2c_audio: &i2c8 {
 	vqmmc-supply = <&ppvar_sd_card_io>;
 };
 
+&spdif {
+	status = "okay";
+	#sound-dai-cells = <0>;
+};
+
 &spi1 {
 	status = "okay";
 
@@ -794,6 +819,16 @@ ap_i2c_audio: &i2c8 {
 
 	rockchip,hw-tshut-mode = <1>; /* tshut mode 0:CRU 1:GPIO */
 	rockchip,hw-tshut-polarity = <1>; /* tshut polarity 0:LOW 1:HIGH */
+};
+
+&tcphy0{
+	status = "okay";
+	extcon = <&usbc_extcon0>;
+};
+
+&tcphy1{
+	status = "okay";
+	extcon = <&usbc_extcon1>;
 };
 
 &uart2 {
