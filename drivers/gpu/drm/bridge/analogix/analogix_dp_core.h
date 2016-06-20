@@ -179,6 +179,9 @@ struct analogix_dp_device {
 	unsigned char           edid[EDID_BLOCK_LENGTH * 2];
 	bool			psr_support;
 
+	int			num_valid_pixel_clocks;
+	u32			*valid_pixel_clocks;
+
 	struct analogix_dp_plat_data *plat_data;
 };
 

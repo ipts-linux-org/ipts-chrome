@@ -1033,9 +1033,30 @@ analogix_dp_best_encoder(struct drm_connector *connector)
 	return dp->encoder;
 }
 
+static enum drm_mode_status
+analogix_dp_mode_valid(struct drm_connector *connector,
+		       struct drm_display_mode *mode)
+{
+	struct analogix_dp_device *dp = to_dp(connector);
+	int i;
+
+	/* No special filter for valid pixels clocks */
+	if (dp->num_valid_pixel_clocks == 0)
+		return MODE_OK;
+
+	/* Filter, only accepting pixels clocks in the whitelist */
+	for (i = 0; i < dp->num_valid_pixel_clocks; i++) {
+		if (mode->clock == dp->valid_pixel_clocks[i])
+			return MODE_OK;
+	}
+
+	return MODE_BAD;
+}
+
 static const struct drm_connector_helper_funcs analogix_dp_connector_helper_funcs = {
 	.get_modes = analogix_dp_get_modes,
 	.best_encoder = analogix_dp_best_encoder,
+	.mode_valid = analogix_dp_mode_valid,
 };
 
 enum drm_connector_status
@@ -1287,6 +1308,7 @@ static int analogix_dp_dt_parse_pdata(struct analogix_dp_device *dp)
 {
 	struct device_node *dp_node = dp->dev->of_node;
 	struct video_info *video_info = &dp->video_info;
+	int ret;
 
 	switch (dp->plat_data->dev_type) {
 	case ROCKCHIP_DP:
@@ -1308,6 +1330,31 @@ static int analogix_dp_dt_parse_pdata(struct analogix_dp_device *dp)
 				     &video_info->max_lane_count);
 		break;
 	}
+
+	dp->num_valid_pixel_clocks =
+		of_property_count_elems_of_size(dp_node,
+						"analogix,valid-pixel-clocks",
+						sizeof(u32));
+	if (dp->num_valid_pixel_clocks < 0)
+		dp->num_valid_pixel_clocks = 0;
+
+	if (dp->num_valid_pixel_clocks != 0) {
+		dp->valid_pixel_clocks =
+			devm_kcalloc(dp->dev, dp->num_valid_pixel_clocks,
+				     sizeof(u32), GFP_KERNEL);
+		if (dp->valid_pixel_clocks == NULL) {
+			dev_warn(dp->dev, "Couldn't allocate pixels clocks\n");
+			dp->num_valid_pixel_clocks = 0;
+		} else {
+			ret = of_property_read_u32_array(
+				dp_node, "analogix,valid-pixel-clocks",
+			        dp->valid_pixel_clocks,
+			        dp->num_valid_pixel_clocks);
+			if (WARN_ON(ret))
+				dp->num_valid_pixel_clocks = 0;
+		}
+	}
+
 
 	return 0;
 }
