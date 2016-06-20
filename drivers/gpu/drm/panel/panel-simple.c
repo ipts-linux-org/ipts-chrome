@@ -1073,23 +1073,38 @@ static const struct panel_desc samsung_ltn140at29_301 = {
 	},
 };
 
-static const struct drm_display_mode sharp_lq123p1jx31_mode = {
-	.clock = 252750,
-	.hdisplay = 2400,
-	.hsync_start = 2400 + 48,
-	.hsync_end = 2400 + 48 + 32,
-	.htotal = 2400 + 48 + 32 + 80,
-	.vdisplay = 1600,
-	.vsync_start = 1600 + 3,
-	.vsync_end = 1600 + 3 + 10,
-	.vtotal = 1600 + 3 + 10 + 33,
-	.vrefresh = 60,
-	.flags = DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_NHSYNC,
+static const struct drm_display_mode sharp_lq123p1jx31_modes[] = {
+	{
+		.clock = 252750,
+		.hdisplay = 2400,
+		.hsync_start = 2400 + 48,
+		.hsync_end = 2400 + 48 + 32,
+		.htotal = 2400 + 48 + 32 + 80,
+		.vdisplay = 1600,
+		.vsync_start = 1600 + 3,
+		.vsync_end = 1600 + 3 + 10,
+		.vtotal = 1600 + 3 + 10 + 33,
+		.vrefresh = 60,
+		.flags = DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_NHSYNC,
+	},
+	{
+		.clock = 266667,
+		.hdisplay = 2400,
+		.hsync_start = 2400 + 48,
+		.hsync_end = 2400 + 48 + 32,
+		.htotal = 2400 + 48 + 32 + 139,
+		.vdisplay = 1600,
+		.vsync_start = 1600 + 3,
+		.vsync_end = 1600 + 3 + 10,
+		.vtotal = 1600 + 3 + 10 + 84,
+		.vrefresh = 60,
+		.flags = DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_NHSYNC,
+	},
 };
 
 static const struct panel_desc sharp_lq123p1jx31 = {
-	.modes = &sharp_lq123p1jx31_mode,
-	.num_modes = 1,
+	.modes = sharp_lq123p1jx31_modes,
+	.num_modes = ARRAY_SIZE(sharp_lq123p1jx31_modes),
 	.size = {
 		.width = 259,
 		.height = 173,
@@ -1124,23 +1139,38 @@ static const struct panel_desc shelly_sca07010_bfn_lnn = {
 	.bus_format = MEDIA_BUS_FMT_RGB666_1X18,
 };
 
-static const struct drm_display_mode starry_kr122ea0sra_mode = {
-	.clock = 147000,
-	.hdisplay = 1920,
-	.hsync_start = 1920 + 16,
-	.hsync_end = 1920 + 16 + 16,
-	.htotal = 1920 + 16 + 16 + 32,
-	.vdisplay = 1200,
-	.vsync_start = 1200 + 15,
-	.vsync_end = 1200 + 15 + 2,
-	.vtotal = 1200 + 15 + 2 + 18,
-	.vrefresh = 60,
-	.flags = DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_NHSYNC,
+static const struct drm_display_mode starry_kr122ea0sra_modes[] = {
+	{
+		.clock = 147000,
+		.hdisplay = 1920,
+		.hsync_start = 1920 + 16,
+		.hsync_end = 1920 + 16 + 16,
+		.htotal = 1920 + 16 + 16 + 32,
+		.vdisplay = 1200,
+		.vsync_start = 1200 + 15,
+		.vsync_end = 1200 + 15 + 2,
+		.vtotal = 1200 + 15 + 2 + 18,
+		.vrefresh = 60,
+		.flags = DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_NHSYNC,
+	},
+	{
+		.clock = 148500,
+		.hdisplay = 1920,
+		.hsync_start = 1920 + 20,
+		.hsync_end = 1920 + 20 + 20,
+		.htotal = 1920 + 20 + 20 + 36,
+		.vdisplay = 1200,
+		.vsync_start = 1200 + 20,
+		.vsync_end = 1200 + 20 + 2,
+		.vtotal = 1200 + 20 + 2 + 18,
+		.vrefresh = 60,
+		.flags = DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_NHSYNC,
+	},
 };
 
 static const struct panel_desc starry_kr122ea0sra = {
-	.modes = &starry_kr122ea0sra_mode,
-	.num_modes = 1,
+	.modes = starry_kr122ea0sra_modes,
+	.num_modes = ARRAY_SIZE(starry_kr122ea0sra_modes),
 	.size = {
 		.width = 263,
 		.height = 164,

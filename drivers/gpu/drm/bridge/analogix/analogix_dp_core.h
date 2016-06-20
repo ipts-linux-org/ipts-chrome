@@ -178,9 +178,10 @@ struct analogix_dp_device {
 	bool                    force_hpd;
 	unsigned char           edid[EDID_BLOCK_LENGTH * 2];
 	bool			psr_support;
-
 	struct mutex		panel_lock;
 	bool			panel_is_modeset;
+	int			num_valid_pixel_clocks;
+	u32			*valid_pixel_clocks;
 
 	struct analogix_dp_plat_data *plat_data;
 };

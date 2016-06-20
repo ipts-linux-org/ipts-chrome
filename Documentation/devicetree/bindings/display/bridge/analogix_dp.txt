@@ -34,6 +34,10 @@ Optional properties for dp-controller:
 		please refer to the SoC specific binding document:
 		* Documentation/devicetree/bindings/display/exynos/exynos_dp.txt
 		* Documentation/devicetree/bindings/video/analogix_dp-rockchip.txt
+	-analogix,valid-pixel-clocks: If specified, this is an array of pixel
+		clocks (in kHz) that are OK to use.  This can be used to filter
+		out auto-detect modes to pick the ones that we know can make
+		most effectively / cleanly.
 
 [1]: Documentation/devicetree/bindings/media/video-interfaces.txt
 -------------------------------------------------------------------------------
