@@ -107,6 +107,26 @@ static struct rockchip_pll_rate_table rk3399_pll_rates[] = {
 	{ /* sentinel */ },
 };
 
+static struct rockchip_pll_rate_table rk3399_vpll_rates[] = {
+	/* _mhz, _refdiv, _fbdiv, _postdiv1, _postdiv2, _dsmpd, _frac */
+	RK3036_PLL_RATE( 594000000, 1, 123, 5, 1, 0, 12582912),  /* vco = 2970000000 */
+	RK3036_PLL_RATE( 593406593, 1, 123, 5, 1, 0, 10508804),  /* vco = 2967032965 */
+	RK3036_PLL_RATE( 533250000, 1, 111, 5, 1, 0, 1572864),   /* vco = 2666250000 */
+	RK3036_PLL_RATE( 297000000, 1, 123, 5, 2, 0, 12582912),  /* vco = 2970000000 */
+	RK3036_PLL_RATE( 296703297, 1, 123, 5, 2, 0, 10508807),  /* vco = 2967032970 */
+	RK3036_PLL_RATE( 241500000, 1, 120, 4, 3, 0, 12582912),  /* vco = 2898000000 */
+	RK3036_PLL_RATE( 148500000, 1, 129, 7, 3, 0, 15728640),  /* vco = 3118500000 */
+	RK3036_PLL_RATE( 148351648, 1, 123, 5, 4, 0, 10508800),  /* vco = 2967032960 */
+	RK3036_PLL_RATE(  74250000, 1, 129, 7, 6, 0, 15728640),  /* vco = 3118500000 */
+	RK3036_PLL_RATE(  74175824, 1, 129, 7, 6, 0, 13550823),  /* vco = 3115384608 */
+	RK3036_PLL_RATE(  65000000, 1, 113, 7, 6, 0, 12582912),  /* vco = 2730000000 */
+	RK3036_PLL_RATE(  59340659, 1, 121, 7, 7, 0,  2581098),  /* vco = 2907692291 */
+	RK3036_PLL_RATE(  54000000, 1, 110, 7, 7, 0,  4194304),  /* vco = 2646000000 */
+	RK3036_PLL_RATE(  27000000, 1,  55, 7, 7, 0,  2097152),  /* vco = 1323000000 */
+	RK3036_PLL_RATE(  26973027, 1,  55, 7, 7, 0,  1173232),  /* vco = 1321678323 */
+	{ /* sentinel */ },
+};
+
 /* CRU parents */
 PNAME(mux_pll_p)				= { "xin24m", "xin32k" };
 
@@ -154,9 +174,9 @@ PNAME(mux_pll_src_vpll_cpll_gpll_24m_p)		= { "vpll", "cpll", "gpll",
 						    "xin24m" };
 
 PNAME(mux_dclk_vop0_p)			= { "dclk_vop0_div",
-					    "dclk_vop0_frac" };
+					    "dummy_dclk_vop0_frac" };
 PNAME(mux_dclk_vop1_p)			= { "dclk_vop1_div",
-					    "dclk_vop1_frac" };
+					    "dummy_dclk_vop1_frac" };
 
 PNAME(mux_clk_cif_p)			= { "clk_cifout_src", "xin24m" };
 
@@ -227,7 +247,7 @@ static struct rockchip_pll_clock rk3399_pll_clks[] __initdata = {
 	[npll] = PLL(pll_rk3399, PLL_NPLL, "npll",  mux_pll_p, 0, RK3399_PLL_CON(40),
 		     RK3399_PLL_CON(43), 8, 31, ROCKCHIP_PLL_SYNC_RATE, rk3399_pll_rates),
 	[vpll] = PLL(pll_rk3399, PLL_VPLL, "vpll",  mux_pll_p, 0, RK3399_PLL_CON(48),
-		     RK3399_PLL_CON(51), 8, 31, ROCKCHIP_PLL_SYNC_RATE, rk3399_pll_rates),
+		     RK3399_PLL_CON(51), 8, 31, ROCKCHIP_PLL_SYNC_RATE, rk3399_vpll_rates),
 };
 
 static struct rockchip_pll_clock rk3399_pmu_pll_clks[] __initdata = {
@@ -1157,7 +1177,7 @@ static struct rockchip_clk_branch rk3399_clk_branches[] __initdata = {
 	GATE(HCLK_VOP0_NOC, "hclk_vop0_noc", "hclk_vop0_pre", CLK_IGNORE_UNUSED,
 			RK3399_CLKGATE_CON(28), 0, GFLAGS),
 
-	COMPOSITE(DCLK_VOP0_DIV, "dclk_vop0_div", mux_pll_src_vpll_cpll_gpll_p, 0,
+	COMPOSITE(DCLK_VOP0_DIV, "dclk_vop0_div", mux_pll_src_vpll_cpll_gpll_p, CLK_SET_RATE_PARENT,
 			RK3399_CLKSEL_CON(49), 8, 2, MFLAGS, 0, 8, DFLAGS,
 			RK3399_CLKGATE_CON(10), 12, GFLAGS),
 
@@ -1465,35 +1485,87 @@ static struct rockchip_clk_branch rk3399_clk_pmu_branches[] __initdata = {
 };
 
 static const char *const rk3399_cru_critical_clocks[] __initconst = {
-	"aclk_cci_pre",
-	"aclk_gic",
+	/*
+	 * We need to declare that we enable all NOCs which are critical clocks
+	 * always and clearly and explicitly show that we have enabled them at
+	 * clk_summary.
+	 */
+	"aclk_usb3_noc",
+	"aclk_gmac_noc",
+	"pclk_gmac_noc",
+	"pclk_center_main_noc",
+	"aclk_cci_noc0",
+	"aclk_cci_noc1",
+	"clk_dbg_noc",
+	"hclk_vcodec_noc",
+	"aclk_vcodec_noc",
+	"hclk_vdu_noc",
+	"aclk_vdu_noc",
+	"hclk_iep_noc",
+	"aclk_iep_noc",
+	"hclk_rga_noc",
+	"aclk_rga_noc",
+	"aclk_center_main_noc",
+	"aclk_center_peri_noc",
+	"aclk_perihp_noc",
+	"hclk_perihp_noc",
+	"pclk_perihp_noc",
+	"hclk_sdmmc_noc",
+	"aclk_emmc_noc",
+	"aclk_perilp0_noc",
+	"hclk_perilp0_noc",
+	"hclk_m0_perilp_noc",
+	"hclk_perilp1_noc",
+	"hclk_sdio_noc",
+	"hclk_sdioaudio_noc",
+	"pclk_perilp1_noc",
+	"aclk_vio_noc",
+	"aclk_hdcp_noc",
+	"hclk_hdcp_noc",
+	"pclk_hdcp_noc",
+	"pclk_edp_noc",
+	"aclk_vop0_noc",
+	"hclk_vop0_noc",
+	"aclk_vop1_noc",
+	"hclk_vop1_noc",
+	"aclk_isp0_noc",
+	"hclk_isp0_noc",
+	"aclk_isp1_noc",
+	"hclk_isp1_noc",
 	"aclk_gic_noc",
+
+	/* other critical clocks */
 	"pclk_perilp0",
 	"pclk_perilp0",
 	"hclk_perilp0",
-	"hclk_perilp0_noc",
 	"pclk_perilp1",
-	"pclk_perilp1_noc",
 	"pclk_perihp",
-	"pclk_perihp_noc",
 	"hclk_perihp",
 	"aclk_perihp",
-	"aclk_perihp_noc",
 	"aclk_perilp0",
-	"aclk_perilp0_noc",
 	"hclk_perilp1",
-	"hclk_perilp1_noc",
-	"aclk_dmac0_perilp",
-	"gpll_hclk_perilp1_src",
+	"aclk_dmac1_perilp",
 	"gpll_aclk_perilp0_src",
 	"gpll_aclk_perihp_src",
+	"pclk_vio",
+	"pclk_vio_grf",
 };
 
 static const char *const rk3399_pmucru_critical_clocks[] __initconst = {
+	/*
+	 * We need to declare that we enable all NOCs which are critical clocks
+	 * always and clearly and explicitly show that we have enabled them at
+	 * clk_summary.
+	 */
+	"pclk_noc_pmu",
+	"hclk_noc_pmu",
+
+	/* other critical clocks */
 	"ppll",
 	"pclk_pmu_src",
 	"fclk_cm0s_src_pmu",
 	"clk_timer_src_pmu",
+	"pclk_rkpwm_pmu",
 };
 
 static void __init rk3399_clk_init(struct device_node *np)
