@@ -26,9 +26,13 @@
 #include <linux/dma-mapping.h>
 #include <linux/mm.h>
 #include <linux/debugfs.h>
+#include <linux/usb.h>
+#include <linux/platform_device.h>
+#include <linux/version.h>
 
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
+#include <linux/usb/hcd.h>
 #include <linux/usb/otg.h>
 #include <linux/ulpi/interface.h>
 
@@ -850,9 +854,15 @@ struct dwc3 {
 	void			*mem;
 
 	struct dwc3_hwparams	hwparams;
+	struct reset_control	*otg_rst;
 	struct dentry		*root;
 	struct debugfs_regset32	*regset;
-
+	struct {
+		struct extcon_dev	*edev;
+		bool			connected;
+		struct notifier_block	nb;
+		struct delayed_work	work;
+	} cable;
 	u8			test_mode;
 	u8			test_mode_nr;
 	u8			lpm_nyet_threshold;
