@@ -368,6 +368,8 @@
 			dr_mode = "otg";
 			phys = <&tcphy0_usb3>;
 			phy-names = "usb3-phy";
+			resets = <&cru SRST_A_USB3_OTG0>;
+			reset-names = "otg";
 			snps,dis_enblslpm_quirk;
 			// TODO: replace with upstream property
 			snps,phyif_utmi_16_bits;
@@ -398,6 +400,8 @@
 			dr_mode = "otg";
 			phys = <&tcphy1_usb3>;
 			phy-names = "usb3-phy";
+			resets = <&cru SRST_A_USB3_OTG1>;
+			reset-names = "otg";
 			snps,dis_enblslpm_quirk;
 			// TODO: replace with upstream property
 			snps,phyif_utmi_16_bits;

@@ -26,6 +26,7 @@
 #include <linux/spinlock.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
+#include <linux/reset.h>
 #include <linux/interrupt.h>
 #include <linux/ioport.h>
 #include <linux/io.h>
@@ -47,6 +48,7 @@
 #include "io.h"
 
 #include "debug.h"
+#include <linux/extcon.h>
 
 /* -------------------------------------------------------------------------- */
 
@@ -812,6 +814,91 @@ static void dwc3_core_exit_mode(struct dwc3 *dwc)
 	}
 }
 
+static void rockchip_otg_extcon_work(struct work_struct *work)
+{
+	struct dwc3 *dwc = container_of(work, struct dwc3, cable.work.work);
+	struct extcon_dev *edev = dwc->cable.edev;
+	struct usb_hcd *hcd;
+	int ret;
+	u32 reg;
+
+	if (extcon_get_cable_state_(edev, EXTCON_USB_HOST) > 0) {
+		dev_info(dwc->dev, "USB HOST connected\n");
+
+		if (dwc->cable.connected)
+			return;
+
+		if (WARN_ON(dwc->dr_mode == USB_DR_MODE_PERIPHERAL))
+			return;
+
+		ret = phy_power_on(dwc->usb3_generic_phy);
+		if (ret < 0)
+			return;
+
+		reset_control_deassert(dwc->otg_rst);
+
+		hcd = dev_get_drvdata(&dwc->xhci->dev);
+
+		dwc3_phy_setup(dwc);
+		dwc3_set_mode(dwc, DWC3_GCTL_PRTCAP_HOST);
+
+		if (hcd->state == HC_STATE_HALT) {
+			usb_add_hcd(hcd, hcd->irq, IRQF_SHARED);
+			usb_add_hcd(hcd->shared_hcd, hcd->irq, IRQF_SHARED);
+		}
+
+		dwc->cable.connected = true;
+		dev_info(dwc->dev, "%s : %d ", __func__, __LINE__);
+	} else {
+		dev_info(dwc->dev, "USB unconnected\n");
+
+		if (!dwc->cable.connected)
+			return;
+
+		reg = dwc3_readl(dwc->regs, DWC3_GCTL);
+
+		if (DWC3_GCTL_PRTCAP(reg) == DWC3_GCTL_PRTCAP_HOST) {
+			hcd = dev_get_drvdata(&dwc->xhci->dev);
+
+			if (hcd->state != HC_STATE_HALT) {
+				usb_remove_hcd(hcd->shared_hcd);
+				usb_remove_hcd(hcd);
+			}
+		}
+
+		switch (dwc->dr_mode) {
+		case USB_DR_MODE_PERIPHERAL:
+			dwc3_set_mode(dwc, DWC3_GCTL_PRTCAP_DEVICE);
+			break;
+		case USB_DR_MODE_HOST:
+			dwc3_set_mode(dwc, DWC3_GCTL_PRTCAP_HOST);
+			break;
+		case USB_DR_MODE_OTG:
+			dwc3_set_mode(dwc, DWC3_GCTL_PRTCAP_OTG);
+			break;
+		default:
+			return;
+		}
+
+		phy_power_off(dwc->usb3_generic_phy);
+
+		reset_control_assert(dwc->otg_rst);
+
+		dwc->cable.connected = false;
+		dev_info(dwc->dev, "%s : %d ", __func__, __LINE__);
+	}
+}
+
+static int dwc3_rockchip_otg_notifier(struct notifier_block *nb,
+				      unsigned long event, void *ptr)
+{
+	struct dwc3 *dwc = container_of(nb, struct dwc3, cable.nb);
+
+	schedule_delayed_work(&dwc->cable.work, 0);
+
+	return NOTIFY_DONE;
+}
+
 #define DWC3_ALIGN_MASK		(16 - 1)
 
 static int dwc3_probe(struct platform_device *pdev)
@@ -824,6 +911,7 @@ static int dwc3_probe(struct platform_device *pdev)
 	u8			tx_de_emphasis;
 	u8			hird_threshold;
 	u32			fladj = 0;
+	struct extcon_dev	*edev;
 
 	int			ret;
 
@@ -1061,13 +1149,14 @@ static int dwc3_probe(struct platform_device *pdev)
 
 	usb_phy_set_suspend(dwc->usb2_phy, 0);
 	usb_phy_set_suspend(dwc->usb3_phy, 0);
+
 	ret = phy_power_on(dwc->usb2_generic_phy);
 	if (ret < 0)
 		goto err2;
 
-	ret = phy_power_on(dwc->usb3_generic_phy);
-	if (ret < 0)
-		goto err3;
+//	ret = phy_power_on(dwc->usb3_generic_phy);
+//	if (ret < 0)
+//		goto err3;
 
 	ret = dwc3_event_buffers_setup(dwc);
 	if (ret) {
@@ -1085,6 +1174,43 @@ static int dwc3_probe(struct platform_device *pdev)
 		goto err6;
 	}
 
+	dwc->otg_rst = devm_reset_control_get(dev, "otg");
+	if (IS_ERR(dwc->otg_rst)) {
+		dev_err(dev, "no usb3 reset control found\n");
+		return PTR_ERR(dwc->otg_rst);
+	}
+
+	if (device_property_read_bool(dev, "extcon")) {
+		edev = extcon_get_edev_by_phandle(dev, 0);
+		if (IS_ERR(edev)) {
+			if (PTR_ERR(edev) != -EPROBE_DEFER)
+				dev_err(dev, "couldn't get extcon device\n");
+			return PTR_ERR(edev);
+		}
+
+		/* Register for extcon notification */
+		INIT_DELAYED_WORK(&dwc->cable.work, rockchip_otg_extcon_work);
+		dwc->cable.nb.notifier_call = dwc3_rockchip_otg_notifier;
+		ret = extcon_register_notifier(edev, EXTCON_USB_HOST,
+					       &dwc->cable.nb);
+		if (ret < 0) {
+			dev_err(dev, "failed to register notifier for USB HOST\n");
+			return ret;
+		}
+
+		/*
+		 * cable.connected flag is used for otg device/host
+		 * connect status, true means connection and false
+		 * means disconnection. However, we initialize the
+		 * cable.connected with true, though nothing connect
+		 * with the usb port. It aims to do phy power off
+		 * and disable controller in cable.work.
+		 */
+		dwc->cable.connected = false;
+		dwc->cable.edev = edev;
+		schedule_delayed_work(&dwc->cable.work, 0);
+	}
+
 	pm_runtime_allow(dev);
 
 	return 0;
@@ -1096,9 +1222,9 @@ err5:
 	dwc3_event_buffers_cleanup(dwc);
 
 err4:
-	phy_power_off(dwc->usb3_generic_phy);
+//	phy_power_off(dwc->usb3_generic_phy);
 
-err3:
+//err3:
 	phy_power_off(dwc->usb2_generic_phy);
 
 err2:

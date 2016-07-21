@@ -867,6 +867,7 @@ ap_i2c_audio: &i2c8 {
 };
 
 &usbdrd_dwc3_0 {
+	extcon = <&usbc_extcon0>;
 	status = "okay";
 	dr_mode = "host";
 };
@@ -876,6 +877,7 @@ ap_i2c_audio: &i2c8 {
 };
 
 &usbdrd_dwc3_1 {
+	extcon = <&usbc_extcon1>;
 	status = "okay";
 	dr_mode = "host";
 };
