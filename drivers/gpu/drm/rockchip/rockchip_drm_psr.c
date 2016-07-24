@@ -45,14 +45,9 @@ static struct psr_drv *find_psr_by_crtc(struct drm_crtc *crtc)
 	struct rockchip_drm_private *drm_drv = crtc->dev->dev_private;
 	struct psr_drv *psr;
 
-	mutex_lock(&drm_drv->psr_list_mutex);
-	list_for_each_entry(psr, &drm_drv->psr_list, list) {
-		if (psr->encoder->crtc == crtc) {
-			mutex_unlock(&drm_drv->psr_list_mutex);
+	list_for_each_entry(psr, &drm_drv->psr_list, list)
+		if (psr->encoder->crtc == crtc)
 			return psr;
-		}
-	}
-	mutex_unlock(&drm_drv->psr_list_mutex);
 
 	return ERR_PTR(-ENODEV);
 }
@@ -146,7 +141,6 @@ void rockchip_drm_psr_flush(struct drm_device *dev)
 	struct rockchip_drm_private *drm_drv = dev->dev_private;
 	struct psr_drv *psr;
 
-	mutex_lock(&drm_drv->psr_list_mutex);
 	list_for_each_entry(psr, &drm_drv->psr_list, list) {
 		if (psr->state == PSR_DISABLE)
 			continue;
@@ -156,7 +150,6 @@ void rockchip_drm_psr_flush(struct drm_device *dev)
 
 		psr_set_state(psr, PSR_FLUSH);
 	}
-	mutex_unlock(&drm_drv->psr_list_mutex);
 }
 EXPORT_SYMBOL(rockchip_drm_psr_flush);
 
