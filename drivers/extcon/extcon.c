@@ -373,8 +373,7 @@ static ssize_t cable_state_show(struct device *dev,
 	int i = cable->cable_index;
 
 	return sprintf(buf, "%d\n",
-		       extcon_get_cable_state_(cable->edev,
-					       cable->edev->supported_cable[i]));
+		extcon_get_state(cable->edev, cable->edev->supported_cable[i]));
 }
 
 /**
@@ -470,11 +469,11 @@ static int extcon_update_state(struct extcon_dev *edev, u32 mask, u32 state)
 }
 
 /**
- * extcon_get_cable_state_() - Get the status of a specific cable.
+ * extcon_get_state() - Get the state of a external connector.
  * @edev:	the extcon device that has the cable.
  * @id:		the unique id of each external connector in extcon enumeration.
  */
-int extcon_get_cable_state_(struct extcon_dev *edev, const unsigned int id)
+int extcon_get_state(struct extcon_dev *edev, const unsigned int id)
 {
 	int index;
 
@@ -490,17 +489,17 @@ int extcon_get_cable_state_(struct extcon_dev *edev, const unsigned int id)
 
 	return (int)(is_extcon_attached(edev, id, index));
 }
-EXPORT_SYMBOL_GPL(extcon_get_cable_state_);
+EXPORT_SYMBOL_GPL(extcon_get_state);
 
 /**
- * extcon_set_cable_state_() - Set the status of a specific cable.
+ * extcon_set_state() - Set the state of a external connector.
  * @edev:		the extcon device that has the cable.
  * @id:			the unique id of each external connector
  *			in extcon enumeration.
  * @state:		the new cable status. The default semantics is
  *			true: attached / false: detached.
  */
-int extcon_set_cable_state_(struct extcon_dev *edev, unsigned int id,
+int extcon_set_state(struct extcon_dev *edev, unsigned int id,
 				bool cable_state)
 {
 	u32 state;
@@ -527,7 +526,7 @@ int extcon_set_cable_state_(struct extcon_dev *edev, unsigned int id,
 	state = cable_state ? (1 << index) : 0;
 	return extcon_update_state(edev, 1 << index, state);
 }
-EXPORT_SYMBOL_GPL(extcon_set_cable_state_);
+EXPORT_SYMBOL_GPL(extcon_set_state);
 
 /**
  * extcon_get_property() - Get the property value of a specific cable.
