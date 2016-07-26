@@ -201,6 +201,11 @@ struct extcon_cable {
 	union extcon_property_value chg_propval[EXTCON_PROP_CHG_CNT];
 	union extcon_property_value jack_propval[EXTCON_PROP_JACK_CNT];
 	union extcon_property_value disp_propval[EXTCON_PROP_DISP_CNT];
+
+	unsigned long usb_bits[BITS_TO_LONGS(EXTCON_PROP_USB_CNT)];
+	unsigned long chg_bits[BITS_TO_LONGS(EXTCON_PROP_CHG_CNT)];
+	unsigned long jack_bits[BITS_TO_LONGS(EXTCON_PROP_JACK_CNT)];
+	unsigned long disp_bits[BITS_TO_LONGS(EXTCON_PROP_DISP_CNT)];
 };
 
 static struct class *extcon_class;
@@ -545,7 +550,7 @@ int extcon_get_property(struct extcon_dev *edev, unsigned int id,
 {
 	struct extcon_cable *cable;
 	unsigned long flags;
-	int index, ret = 0;
+	int index, capability, ret = 0;
 
 	*prop_val = (union extcon_property_value)(0);
 
@@ -560,6 +565,11 @@ int extcon_get_property(struct extcon_dev *edev, unsigned int id,
 	index = find_cable_index_by_id(edev, id);
 	if (index < 0)
 		return index;
+
+	/* Check whether the property is available or not. */
+	capability = extcon_get_property_capability(edev, id, prop);
+	if (!capability)
+		return -EPERM;
 
 	/*
 	 * Check whether the external connector is attached.
@@ -616,7 +626,7 @@ int extcon_set_property(struct extcon_dev *edev, unsigned int id,
 {
 	struct extcon_cable *cable;
 	unsigned long flags;
-	int index, ret = 0;
+	int index, capability, ret = 0;
 
 	if (!edev)
 		return -EINVAL;
@@ -629,6 +639,11 @@ int extcon_set_property(struct extcon_dev *edev, unsigned int id,
 	index = find_cable_index_by_id(edev, id);
 	if (index < 0)
 		return index;
+
+	/* Check whether the property is available or not. */
+	capability = extcon_get_property_capability(edev, id, prop);
+	if (!capability)
+		return -EPERM;
 
 	cable = &edev->cables[index];
 	spin_lock_irqsave(&edev->lock, flags);
@@ -657,6 +672,122 @@ int extcon_set_property(struct extcon_dev *edev, unsigned int id,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(extcon_set_property);
+
+/**
+ * extcon_get_property_capability() - Get the capability of property
+ *			of an external connector.
+ * @edev:		the extcon device that has the cable.
+ * @id:			the unique id of each external connector
+ *			in extcon enumeration.
+ * @prop:		the property id among enum extcon_property.
+ *
+ * Returns 1 if the property is available or 0 if not available.
+ */
+int extcon_get_property_capability(struct extcon_dev *edev, unsigned int id,
+					unsigned int prop)
+{
+	struct extcon_cable *cable;
+	int index, type, ret = 0;
+
+	if (!edev)
+		return -EINVAL;
+
+	/* Check whether the property is supported or not */
+	if (!is_extcon_property_supported(id, prop))
+		return -EINVAL;
+
+	/* Find the cable index of external connector by using id */
+	index = find_cable_index_by_id(edev, id);
+	if (index < 0)
+		return index;
+
+	/* Check whether the property is supported or not. */
+	type = get_extcon_type(prop);
+	if (type < 0)
+		return type;
+
+	cable = &edev->cables[index];
+
+	switch (type) {
+	case EXTCON_TYPE_USB:
+		ret = test_bit(prop - EXTCON_PROP_USB_MIN, cable->usb_bits);
+		break;
+	case EXTCON_TYPE_CHG:
+		ret = test_bit(prop - EXTCON_PROP_CHG_MIN, cable->chg_bits);
+		break;
+	case EXTCON_TYPE_JACK:
+		ret = test_bit(prop - EXTCON_PROP_JACK_MIN, cable->jack_bits);
+		break;
+	case EXTCON_TYPE_DISP:
+		ret = test_bit(prop - EXTCON_PROP_DISP_MIN, cable->disp_bits);
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(extcon_get_property_capability);
+
+/**
+ * extcon_set_property_capability() - Set the capability of a property
+ *			of an external connector.
+ * @edev:		the extcon device that has the cable.
+ * @id:			the unique id of each external connector
+ *			in extcon enumeration.
+ * @prop:		the property id among enum extcon_property.
+ *
+ * This function set the capability of a property for an external connector
+ * to mark the bit in capability bitmap which mean the available state of
+ * a property.
+ *
+ * Returns 0 if success or error number if fail
+ */
+int extcon_set_property_capability(struct extcon_dev *edev, unsigned int id,
+					unsigned int prop)
+{
+	struct extcon_cable *cable;
+	int index, type, ret = 0;
+
+	if (!edev)
+		return -EINVAL;
+
+	/* Check whether the property is supported or not. */
+	if (!is_extcon_property_supported(id, prop))
+		return -EINVAL;
+
+	/* Find the cable index of external connector by using id. */
+	index = find_cable_index_by_id(edev, id);
+	if (index < 0)
+		return index;
+
+	/* Check whether the property is supported or not. */
+	type = get_extcon_type(prop);
+	if (type < 0)
+		return type;
+
+	cable = &edev->cables[index];
+
+	switch (type) {
+	case EXTCON_TYPE_USB:
+		__set_bit(prop - EXTCON_PROP_USB_MIN, cable->usb_bits);
+		break;
+	case EXTCON_TYPE_CHG:
+		__set_bit(prop - EXTCON_PROP_CHG_MIN, cable->chg_bits);
+		break;
+	case EXTCON_TYPE_JACK:
+		__set_bit(prop - EXTCON_PROP_JACK_MIN, cable->jack_bits);
+		break;
+	case EXTCON_TYPE_DISP:
+		__set_bit(prop - EXTCON_PROP_DISP_MIN, cable->disp_bits);
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(extcon_set_property_capability);
 
 /**
  * extcon_get_extcon_dev() - Get the extcon device instance from the name
