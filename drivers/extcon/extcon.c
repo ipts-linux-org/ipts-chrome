@@ -294,7 +294,7 @@ static bool is_extcon_changed(struct extcon_dev *edev, int index,
 
 static bool is_extcon_property_supported(unsigned int id, unsigned int prop)
 {
-	unsigned int type;
+	int type;
 
 	/* Check whether the property is supported or not. */
 	type = get_extcon_type(prop);
@@ -302,14 +302,14 @@ static bool is_extcon_property_supported(unsigned int id, unsigned int prop)
 		return false;
 
 	/* Check whether a specific extcon id supports the property or not. */
-	if (extcon_info[id].type | type)
+	if (extcon_info[id].type & type)
 		return true;
 
 	return false;
 }
 
 #define INIT_PROPERTY(name, name_lower, type)				\
-	if (EXTCON_TYPE_##name || type) {				\
+	if (EXTCON_TYPE_##name & type) {				\
 		for (i = 0; i < EXTCON_PROP_##name##_CNT; i++)		\
 			cable->name_lower##_propval[i] = val;		\
 	}								\
