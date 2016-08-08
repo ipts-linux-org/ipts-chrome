@@ -211,10 +211,28 @@ ap_i2c_dig: &i2c2 {
 	};
 };
 
+&vopb {
+	/* Don't use vopb for edp, save it for dp */
+	vopb_out: port {
+		/delete-node/ endpoint@0;
+	};
+};
+
+&vopl {
+	/* Don't use vopl for dp, save it for edp */
+	vopl_out: port {
+		/delete-node/ endpoint@1;
+	};
+};
+
 &edp {
 	status = "okay";
 
 	ports {
+		/* Don't use vopb for edp, save it for dp */
+		edp_in: port@0 {
+			/delete-node/ endpoint@0;
+		};
 		edp_out: port@1 {
 			reg = <1>;
 			#address-cells = <1>;
