@@ -916,9 +916,9 @@ static void vop_psr_work(struct work_struct *work)
 {
 	struct vop *vop = container_of(work, typeof(*vop), psr_work.work);
 
-	if (vop->psr_enabled)
-		rockchip_drm_psr_enable(&vop->crtc);
-	else
+//	if (vop->psr_enabled)
+//		rockchip_drm_psr_enable(&vop->crtc);
+//	else
 		rockchip_drm_psr_disable(&vop->crtc);
 }
 
