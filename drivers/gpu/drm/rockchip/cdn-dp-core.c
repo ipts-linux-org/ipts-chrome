@@ -176,7 +176,7 @@ static int cdn_dp_connector_get_modes(struct drm_connector *connector)
 }
 
 static struct drm_encoder *
-	cdn_dp_connector_best_encoder(struct drm_connector *connector)
+cdn_dp_connector_best_encoder(struct drm_connector *connector)
 {
 	struct cdn_dp_device *dp = connector_to_dp(connector);
 
@@ -322,10 +322,9 @@ static void cdn_dp_encoder_disable(struct drm_encoder *encoder)
 	dp->dpms_mode = DRM_MODE_DPMS_OFF;
 }
 
-static int
-cdn_dp_encoder_atomic_check(struct drm_encoder *encoder,
-			    struct drm_crtc_state *crtc_state,
-			    struct drm_connector_state *conn_state)
+static int cdn_dp_encoder_atomic_check(struct drm_encoder *encoder,
+				       struct drm_crtc_state *crtc_state,
+				       struct drm_connector_state *conn_state)
 {
 	struct rockchip_crtc_state *s = to_rockchip_crtc_state(crtc_state);
 
@@ -544,18 +543,22 @@ static int cdn_dp_audio_codec_init(struct cdn_dp_device *dp,
 static int cdn_dp_get_cap_lanes(struct cdn_dp_device *dp,
 				struct extcon_dev *edev)
 {
-	bool dfp, dptx;
+	union extcon_property_value property;
+	bool dptx;
 	u8 lanes;
 
-	dfp = extcon_get_state(edev, EXTCON_USB_HOST);
 	dptx = extcon_get_state(edev, EXTCON_DISP_DP);
 
-	if (dfp && dptx)
-		lanes = 2;
-	else if (dptx)
-		lanes = 4;
-	else
+	if (dptx) {
+		extcon_get_property(edev, EXTCON_DISP_DP,
+				    EXTCON_PROP_USB_SUPERSPEED, &property);
+		if (property.intval)
+			lanes = 2;
+		else
+			lanes = 4;
+	} else {
 		lanes = 0;
+	}
 
 	return lanes;
 }
@@ -594,8 +597,7 @@ static void cdn_dp_pd_event_wq(struct work_struct *work)
 		 * Read the sink count from DPCD, if sink count become 0, this
 		 * phy could be power off.
 		 */
-		ret = cdn_dp_dpcd_read(dp, DP_SINK_COUNT,
-				       &sink_count, 1);
+		ret = cdn_dp_dpcd_read(dp, DP_SINK_COUNT, &sink_count, 1);
 		if (ret || sink_count)
 			return;
 
