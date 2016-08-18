@@ -81,7 +81,6 @@ struct cdn_dp_device {
 	const struct firmware *fw;	/* cdn dp firmware */
 	unsigned int fw_version;	/* cdn fw version */
 	u32 fw_wait;
-	bool fw_loaded;
 	bool fw_actived;
 	void __iomem *regs;
 	struct regmap *grf;
@@ -90,6 +89,8 @@ struct cdn_dp_device {
 	struct clk *spdif_clk;
 	struct clk *grf_clk;
 	struct reset_control *spdif_rst;
+	struct reset_control *dptx_rst;
+	struct reset_control *apb_rst;
 	struct audio_info audio_info;
 	struct video_info video_info;
 	struct drm_dp_link link;
@@ -99,6 +100,7 @@ struct cdn_dp_device {
 	u8 dpcd[DP_RECEIVER_CAP_SIZE];
 	enum drm_connector_status hpd_status;
 	int dpms_mode;
+	bool suspend;
 	bool sink_has_audio;
 };
 #endif  /* _CDN_DP_CORE_H */

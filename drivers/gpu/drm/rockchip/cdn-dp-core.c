@@ -97,6 +97,12 @@ static int cdn_dp_clk_enable(struct cdn_dp_device *dp)
 	int ret;
 	u32 rate;
 
+	ret = pm_runtime_get_sync(dp->dev);
+	if (ret < 0) {
+		dev_err(dp->dev, "cannot get pm runtime %d\n", ret);
+		goto err_pclk;
+	}
+
 	ret = clk_prepare_enable(dp->pclk);
 	if (ret < 0) {
 		dev_err(dp->dev, "cannot enable dp pclk %d\n", ret);
@@ -109,6 +115,11 @@ static int cdn_dp_clk_enable(struct cdn_dp_device *dp)
 		goto err_core_clk;
 	}
 
+	reset_control_assert(dp->dptx_rst);
+	reset_control_assert(dp->apb_rst);
+	reset_control_deassert(dp->dptx_rst);
+	reset_control_deassert(dp->apb_rst);
+
 	rate = clk_get_rate(dp->core_clk);
 	if (rate < 0) {
 		dev_err(dp->dev, "get clk rate failed: %d\n", rate);
@@ -116,6 +127,8 @@ static int cdn_dp_clk_enable(struct cdn_dp_device *dp)
 	}
 
 	cdn_dp_set_fw_clk(dp, rate);
+
+	cdn_dp_clock_reset(dp);
 
 	return 0;
 
@@ -125,6 +138,15 @@ err_core_clk:
 	clk_disable_unprepare(dp->pclk);
 err_pclk:
 	return ret;
+}
+
+static int cdn_dp_clk_disable(struct cdn_dp_device *dp)
+{
+	clk_disable_unprepare(dp->pclk);
+	clk_disable_unprepare(dp->core_clk);
+	pm_runtime_put_sync(dp->dev);
+
+	return 0;
 }
 
 static enum drm_connector_status
@@ -381,7 +403,6 @@ static int cdn_dp_init(struct cdn_dp_device *dp)
 	struct device_node *np = dev->of_node;
 	struct platform_device *pdev = to_platform_device(dev);
 	struct resource *res;
-	int ret;
 
 	dp->grf = syscon_regmap_lookup_by_phandle(np, "rockchip,grf");
 	if (IS_ERR(dp->grf)) {
@@ -426,13 +447,19 @@ static int cdn_dp_init(struct cdn_dp_device *dp)
 		return PTR_ERR(dp->spdif_rst);
 	}
 
+	dp->dptx_rst = devm_reset_control_get(dev, "tpdx");
+	if (IS_ERR(dp->dptx_rst)) {
+		dev_err(dev, "no uphy reset control found\n");
+		return PTR_ERR(dp->dptx_rst);
+	}
+
+	dp->apb_rst = devm_reset_control_get(dev, "apb");
+	if (IS_ERR(dp->apb_rst)) {
+		dev_err(dev, "no apb reset control found\n");
+		return PTR_ERR(dp->apb_rst);
+	}
+
 	dp->dpms_mode = DRM_MODE_DPMS_OFF;
-
-	ret = cdn_dp_clk_enable(dp);
-	if (ret < 0)
-		return ret;
-
-	cdn_dp_clock_reset(dp);
 
 	return 0;
 }
@@ -547,6 +574,9 @@ static int cdn_dp_get_cap_lanes(struct cdn_dp_device *dp,
 	bool dptx;
 	u8 lanes;
 
+	if (dp->suspend)
+		return 0;
+
 	dptx = extcon_get_state(edev, EXTCON_DISP_DP);
 
 	if (dptx) {
@@ -575,6 +605,79 @@ static int cdn_dp_pd_event(struct notifier_block *nb,
 	return 0;
 }
 
+static void cdn_dp_enter_standy(struct cdn_dp_device *dp, struct cdn_dp_port *port)
+{
+	int i, ret;
+
+	ret = phy_power_off(port->phy);
+	if (ret) {
+		dev_err(dp->dev, "phy power off failed: %d", ret);
+		return;
+	}
+
+	port->phy_status = false;
+	port->cap_lanes = 0;
+	for (i = 0; i < dp->ports; i++) {
+		if (dp->port[i]->phy_status)
+			return;
+	}
+
+	ret = cdn_dp_grf_write(dp, GRF_SOC_CON26,
+			       DPTX_HPD_SEL_MASK | DPTX_HPD_DEL);
+	if (ret)
+		return;
+
+	dp->hpd_status = connector_status_disconnected;
+	drm_helper_hpd_irq_event(dp->drm_dev);
+	cdn_dp_set_firmware_active(dp, false);
+
+	cdn_dp_clk_disable(dp);
+	return;
+}
+
+static int cdn_dp_get_dpcd(struct cdn_dp_device *dp, struct cdn_dp_port *port)
+{
+	u8 sink_count;
+	int i, ret;
+
+	/*
+	 * Native read with retry for link status and receiver capability reads
+	 * for cases where the sink may still not be ready.
+	 *
+	 * Sinks are *supposed* to come up within 1ms from an off state, but
+	 * some DOCKs need about 5 seconds to power up, so read the dpcd every
+	 * 100ms, if can not get a good dpcd in 10 seconds, give up.
+	 */
+	for (i = 0; i < 100; i++) {
+		ret = cdn_dp_dpcd_read(dp, 0x000, dp->dpcd,
+				       DP_RECEIVER_CAP_SIZE);
+		if (!ret) {
+			dev_dbg(dp->dev, "get dpcd success!\n");
+			/*
+			 * Check sink count here. Then goto power off phy,
+			 * if sink count is 0.
+			 */
+			ret = cdn_dp_dpcd_read(dp, DP_SINK_COUNT,
+					       &sink_count, 1);
+			if (ret)
+				continue;
+
+			sink_count = DP_GET_SINK_COUNT(sink_count);
+			if (!sink_count)
+				return -ENODEV;
+			else
+				return 0;
+		} else if (!extcon_get_state(port->extcon, EXTCON_DISP_DP)) {
+			break;
+		}
+		msleep(100);
+	}
+
+	dev_err(dp->dev, "get dpcd failed!\n");
+
+	return -ETIMEDOUT;
+}
+
 static void cdn_dp_pd_event_wq(struct work_struct *work)
 {
 	struct cdn_dp_port *port = container_of(work, struct cdn_dp_port,
@@ -587,12 +690,8 @@ static void cdn_dp_pd_event_wq(struct work_struct *work)
 	new_cap_lanes = cdn_dp_get_cap_lanes(dp, port->extcon);
 
 	if (new_cap_lanes == port->cap_lanes) {
-		dev_dbg(dp->dev, "lanes count does not change: %d\n",
-			new_cap_lanes);
-
 		if (!new_cap_lanes)
 			return;
-
 		/*
 		 * Read the sink count from DPCD, if sink count become 0, this
 		 * phy could be power off.
@@ -604,29 +703,8 @@ static void cdn_dp_pd_event_wq(struct work_struct *work)
 		new_cap_lanes = 0;
 	}
 
-	if (!new_cap_lanes) {
-		ret = phy_power_off(port->phy);
-		if (ret) {
-			dev_err(dp->dev, "phy power off failed: %d", ret);
-			return;
-		}
-		port->phy_status = false;
-		port->cap_lanes = 0;
-		for (i = 0; i < dp->ports; i++) {
-			if (dp->port[i]->phy_status)
-				return;
-		}
-
-		ret = cdn_dp_grf_write(dp, GRF_SOC_CON26,
-				       DPTX_HPD_SEL_MASK | DPTX_HPD_DEL);
-		if (ret)
-			return;
-
-		dp->hpd_status = connector_status_disconnected;
-		drm_helper_hpd_irq_event(dp->drm_dev);
-		cdn_dp_set_firmware_active(dp, false);
-		return;
-	}
+	if (!new_cap_lanes)
+		return cdn_dp_enter_standy(dp, port);
 
 	/* if other phy is running, do not touch the hpd_status, and return */
 	for (i = 0; i < dp->ports; i++) {
@@ -637,27 +715,25 @@ static void cdn_dp_pd_event_wq(struct work_struct *work)
 		}
 	}
 
-	if (!dp->fw_loaded) {
-		ret = request_firmware(&dp->fw, CDN_DP_FIRMWARE, dp->dev);
-		if (ret == -ENOENT && dp->fw_wait <= MAX_FW_WAIT_SECS) {
-			unsigned long time = msecs_to_jiffies(dp->fw_wait * HZ);
+	ret = request_firmware(&dp->fw, CDN_DP_FIRMWARE, dp->dev);
+	if (ret == -ENOENT && dp->fw_wait <= MAX_FW_WAIT_SECS) {
+		unsigned long time = msecs_to_jiffies(dp->fw_wait * HZ);
 
-			/*
-			 * If can not find the file, retry to load the firmware
-			 * in several seconds, if still failed after 1 minute,
-			 * give up.
-			 */
-			schedule_delayed_work(&port->event_wq, time);
-			dp->fw_wait *= 2;
-			return;
-		} else if (ret) {
-			dev_err(dp->dev, "failed to request firmware: %d\n",
-				ret);
-			return;
-		}
-	} else {
-		cdn_dp_set_firmware_active(dp, true);
+		/*
+		 * If can not find the file, retry to load the firmware
+		 * in several seconds, if still failed after 1 minute,
+		 * give up.
+		 */
+		schedule_delayed_work(&port->event_wq, time);
+		dp->fw_wait *= 2;
+		return;
+	} else if (ret) {
+		dev_err(dp->dev, "failed to request firmware: %d\n",
+			ret);
+		return;
 	}
+
+	cdn_dp_clk_enable(dp);
 
 	ret = cdn_dp_grf_write(dp, GRF_SOC_CON26,
 			       (port->id << UPHY_SEL_BIT) | UPHY_SEL_MASK);
@@ -672,14 +748,10 @@ static void cdn_dp_pd_event_wq(struct work_struct *work)
 
 	port->phy_status = true;
 
-	if (!dp->fw_loaded) {
-		ret = cdn_dp_firmware_init(dp);
-		if (ret) {
-			dev_err(dp->dev, "firmware init failed: %d", ret);
-			goto err_firmware;
-		}
-		release_firmware(dp->fw);
-		dp->fw_loaded = 1;
+	ret = cdn_dp_firmware_init(dp);
+	if (ret) {
+		dev_err(dp->dev, "firmware init failed: %d", ret);
+		goto err_firmware;
 	}
 
 	ret = cdn_dp_grf_write(dp, GRF_SOC_CON26,
@@ -707,44 +779,14 @@ static void cdn_dp_pd_event_wq(struct work_struct *work)
 		goto err_firmware;
 	}
 
-	/*
-	 * Native read with retry for link status and receiver capability reads
-	 * for cases where the sink may still not be ready.
-	 *
-	 * Sinks are *supposed* to come up within 1ms from an off state, but
-	 * some DOCKs need about 5 seconds to power up, so read the dpcd every
-	 * 100ms, if can not get a good dpcd in 10 seconds, give up.
-	 */
-	for (i = 0; i < 100; i++) {
-		ret = cdn_dp_dpcd_read(dp, 0x000, dp->dpcd,
-				       DP_RECEIVER_CAP_SIZE);
-		if (!ret) {
-			dev_dbg(dp->dev, "get dpcd success!\n");
-
-			/*
-			 * Check sink count here. Then goto power off phy,
-			 * if sink count is 0.
-			 */
-			ret = cdn_dp_dpcd_read(dp, DP_SINK_COUNT,
-					       &sink_count, 1);
-			if (ret)
-				continue;
-
-			sink_count = DP_GET_SINK_COUNT(sink_count);
-			if (!sink_count)
-				goto err_firmware;
-
-			port->cap_lanes = new_cap_lanes;
-			dp->hpd_status = connector_status_connected;
-			drm_helper_hpd_irq_event(dp->drm_dev);
-			return;
-		} else if (!extcon_get_state(port->extcon, EXTCON_DISP_DP)) {
-			break;
-		}
-		msleep(100);
+	ret = cdn_dp_get_dpcd(dp, port);
+	if (!ret) {
+		port->cap_lanes = new_cap_lanes;
+		dp->hpd_status = connector_status_connected;
+		drm_helper_hpd_irq_event(dp->drm_dev);
+		release_firmware(dp->fw);
+		return;
 	}
-
-	dev_err(dp->dev, "get dpcd failed!\n");
 
 err_firmware:
 	ret = phy_power_off(port->phy);
@@ -754,10 +796,8 @@ err_firmware:
 		port->phy_status = false;
 
 err_phy:
-	if (dp->fw_loaded)
-		cdn_dp_set_firmware_active(dp, false);
-	else
-		release_firmware(dp->fw);
+	cdn_dp_clk_disable(dp);
+	release_firmware(dp->fw);
 }
 
 static int cdn_dp_bind(struct device *dev, struct device *master, void *data)
@@ -768,6 +808,8 @@ static int cdn_dp_bind(struct device *dev, struct device *master, void *data)
 	struct cdn_dp_port *port;
 	struct drm_device *drm_dev = data;
 	int ret, i;
+
+	pm_runtime_enable(dev);
 
 	ret = cdn_dp_init(dp);
 	if (ret < 0)
@@ -857,12 +899,49 @@ static void cdn_dp_unbind(struct device *dev, struct device *master, void *data)
 		extcon_unregister_notifier(port->extcon, EXTCON_DISP_DP,
 					   &port->event_nb);
 	}
+
+	pm_runtime_disable(dev);
 }
 
 static const struct component_ops cdn_dp_component_ops = {
 	.bind = cdn_dp_bind,
 	.unbind = cdn_dp_unbind,
 };
+
+int cdn_dp_suspend(struct device *dev)
+{
+	struct cdn_dp_device *dp = dev_get_drvdata(dev);
+	struct cdn_dp_port *port;
+	int i;
+
+	for (i = 0; i < dp->ports; i++) {
+		port = dp->port[i];
+		if (port->phy_status) {
+			cdn_dp_dpcd_write(dp, DP_SET_POWER, DP_SET_POWER_D3);
+			dp->suspend = true;
+			schedule_delayed_work(&port->event_wq, 0);
+		}
+	}
+
+	return 0;
+}
+
+int cdn_dp_resume(struct device *dev)
+{
+	struct cdn_dp_device *dp = dev_get_drvdata(dev);
+	struct cdn_dp_port *port;
+	int i;
+
+	if (dp->suspend) {
+		dp->suspend = false;
+		for (i = 0; i < dp->ports; i++) {
+			port = dp->port[i];
+			schedule_delayed_work(&port->event_wq, 0);
+		}
+	}
+
+	return 0;
+}
 
 static int cdn_dp_probe(struct platform_device *pdev)
 {
@@ -922,6 +1001,11 @@ static int cdn_dp_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct dev_pm_ops cdn_dp_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(cdn_dp_suspend,
+				cdn_dp_resume)
+};
+
 static struct platform_driver cdn_dp_driver = {
 	.probe = cdn_dp_probe,
 	.remove = cdn_dp_remove,
@@ -929,6 +1013,7 @@ static struct platform_driver cdn_dp_driver = {
 		   .name = "cdn-dp",
 		   .owner = THIS_MODULE,
 		   .of_match_table = of_match_ptr(cdn_dp_dt_ids),
+		   .pm = &cdn_dp_pm_ops,
 	},
 };
 
